@@ -39,7 +39,7 @@ Configuration can be set in the .vbs file itself.
 * strPort - Listening port on the above host
 * intSleep - Default delay between the polls to the server
 
-Default settings
+**Default settings**
 ```
 strHost = "127.0.0.1"
 strPort = "8080"
