@@ -114,7 +114,7 @@ While True
                 End With
 
                 ' Set response
-                SendStatusUpdate strRawCommand, "File download from " & strArgument & "successful."
+                SendStatusUpdate strRawCommand, "File download from " & strArgument & " successful."
             End If
 
         Case "GET"

