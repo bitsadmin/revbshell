@@ -65,12 +65,6 @@ class myHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         global context
 
-        contenttype_header = self.headers.getheader('content-type')
-        if contenttype_header:
-            ctype, pdict = cgi.parse_header(contenttype_header)
-        else:
-            ctype = None
-
         # File upload
         # if ctype == 'multipart/form-data':
         form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={'REQUEST_METHOD': 'POST'})

