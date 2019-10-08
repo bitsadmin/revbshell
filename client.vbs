@@ -9,7 +9,7 @@
 ' Website:
 '  https://github.com/bitsadmin/ReVBShell
 '
-
+'
 Option Explicit
 On Error Resume Next
 
