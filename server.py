@@ -59,7 +59,7 @@ class myHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write(content)
+        self.wfile.write(content.encode())
         return
 
     # Result from executing command
@@ -87,10 +87,10 @@ class myHandler(BaseHTTPRequestHandler):
             with open(os.path.join('Downloads', result_filename), 'wb') as f:
                 f.write(result_data)
 
-            print(f'File {result_filename} downloaded.')
+            print(f'File "{result_filename}" downloaded.')
         # Print output
         else:
-            print(result_data)
+            print(result_data.decode())
 
         sys.stdout.write('%s> ' % context)
 
@@ -98,7 +98,7 @@ class myHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('content-type', 'text/plain')
         self.end_headers()
-        self.wfile.write('OK')
+        self.wfile.write('OK'.encode())
         return
 
     # Do not write log messages to console
@@ -163,7 +163,7 @@ def main():
 
                 # Check file existence
                 if not os.path.exists(args):
-                    print(f'File not found: {args}')
+                    print(f'File not found: "{args}"')
                     continue
 
                 # Check if LHOST variable is set
